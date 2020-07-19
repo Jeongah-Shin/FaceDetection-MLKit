@@ -19,6 +19,8 @@ package com.jeongari.facedetection_mlkit.camera
 import android.annotation.SuppressLint
 import android.app.*
 import android.content.Context
+import android.content.pm.PackageInstaller
+import android.content.pm.PackageInstaller.SessionInfo.INVALID_ID
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.*
@@ -34,9 +36,14 @@ import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.tasks.OnFailureListener
+import com.google.android.gms.vision.face.Contour
+import com.google.android.gms.vision.face.Face
+import com.google.android.gms.vision.face.Landmark
+import com.google.android.gms.vision.face.Landmark.LEFT_EAR
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
@@ -61,13 +68,16 @@ class Camera2BasicFragment : Fragment(), ActivityCompat.OnRequestPermissionsResu
     protected var textureView: AutoFitTextureView? = null
     private var layoutFrame: AutoFitFrameLayout? = null
     protected var drawView : DrawView? = null
+    private var tvResult : TextView ?= null
 
 
     protected var runDetector = false
     private var isFacingFront: Boolean = true
 
-
     private var byteArray: ByteArray? = null
+
+    private var inferenceTime : Long ?= null
+    private var landmarkArrayList : ArrayList<PointF> ?= null
 
     // High-accuracy landmark detection and face classification
     val highAccuracyOpts = FaceDetectorOptions.Builder()
@@ -257,16 +267,19 @@ class Camera2BasicFragment : Fragment(), ActivityCompat.OnRequestPermissionsResu
             bitmap.recycle()
 
             val image = InputImage.fromByteArray(byteArray!!,textureView!!.width, textureView!!.height, 0, InputImage.IMAGE_FORMAT_YV12)
+            val systemTimeStart = System.currentTimeMillis()
 
             detector.process(image)
                 .addOnCompleteListener {
+                    val systemTimeComplete = System.currentTimeMillis()
+                    inferenceTime = systemTimeComplete - systemTimeStart
                 }
                 .addOnSuccessListener { faces ->
                     if (faces.isEmpty()){
 //                        showTextview("No Face deteced")
                     }
                     else{
-                        showBoundingBox(faces)
+                        showInferenceResultView(faces)
                     }
                 }
                 .addOnCanceledListener {
@@ -285,14 +298,71 @@ class Camera2BasicFragment : Fragment(), ActivityCompat.OnRequestPermissionsResu
 
     }
 
-    private fun showBoundingBox(faces: MutableList<com.google.mlkit.vision.face.Face>) {
-        activity?.runOnUiThread {
-            drawView?.setImgSize(textureView!!.width, textureView!!.height)
-        }
+    private fun showInferenceResultView(faces: MutableList<com.google.mlkit.vision.face.Face>) {
         for (face in faces) {
             val bounds = face.boundingBox
-            drawView!!.setDrawPoint(RectF(bounds), 1f)
-//            showTextview(bounds.toShortString())
+            val rotX = face.headEulerAngleX
+            val rotY = face.headEulerAngleY // Head is rotated to the right rotY degrees
+            val rotZ = face.headEulerAngleZ // Head is tilted sideways rotZ degrees
+
+            val leftEyeContour = face.getContour(Contour.LEFT_EYE)?.points?.let {
+                var leftEyeIter = it.iterator()
+                while (leftEyeIter.hasNext()){
+                    landmarkArrayList?.add(leftEyeIter.next())
+                }
+            }
+
+            val rightEyeContour = face.getContour(Contour.RIGHT_EYE)?.points?.let {
+                var rightEyeIter = it.iterator()
+                while (rightEyeIter.hasNext()){
+                    landmarkArrayList?.add(rightEyeIter.next())
+                }
+            }
+
+            val upperLipContour = face.getContour(Contour.UPPER_LIP_TOP)?.points?.let {
+                var ulcIter = it.iterator()
+                while (ulcIter.hasNext()){
+                    landmarkArrayList?.add(ulcIter.next())
+                }
+            }
+
+            val bottomLipContour = face.getContour(Contour.LOWER_LIP_BOTTOM)?.points?.let {
+                var blcIter = it.iterator()
+                while (blcIter.hasNext()){
+                    landmarkArrayList?.add(blcIter.next())
+                }
+            }
+
+            var smileProb : Float ?= null
+            var rightEyeOpenProb : Float ?= null
+            var id : Int ?= null
+
+            // If classification was enabled:
+            if (face.smilingProbability != Face.UNCOMPUTED_PROBABILITY) {
+                smileProb = face.smilingProbability
+            }
+            if (face.rightEyeOpenProbability != Face.UNCOMPUTED_PROBABILITY) {
+                rightEyeOpenProb = face.rightEyeOpenProbability
+            }
+
+            // If face tracking was enabled:
+            if (face.trackingId != PackageInstaller.SessionInfo.INVALID_ID) {
+                id = face.trackingId
+            }
+
+            val resultString = faces.size.toString() + " face detected.\n" +
+                    "EulerAngle" + "(" + rotX.toString() + ", " + rotY.toString() + ", " + rotZ.toString() + ")\n" +
+                    "smilingProbability" + smileProb.toString() + "\n" +
+                    "rightEyeOpenProbability" + rightEyeOpenProb.toString() + "\n" +
+                    "faceId" + id.toString()
+
+
+            drawView!!.setDrawPoint(RectF(bounds),landmarkArrayList!!, 1f)
+            activity?.runOnUiThread {
+                drawView?.setImgSize(textureView!!.width, textureView!!.height)
+                tvResult?.text = resultString
+             }
+
         }
         drawView?.invalidate()
     }
@@ -329,6 +399,7 @@ class Camera2BasicFragment : Fragment(), ActivityCompat.OnRequestPermissionsResu
         textureView = view!!.findViewById(R.id.textureView)
         layoutFrame = view!!.findViewById(R.id.layoutFrame)
         drawView = view!!.findViewById(R.id.drawView)
+        tvResult =view!!.findViewById(R.id.tvResult)
     }
 
     override fun onResume() {

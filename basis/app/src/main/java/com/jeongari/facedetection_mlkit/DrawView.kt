@@ -1,12 +1,9 @@
 package com.jeongari.facedetection_mlkit
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
+import android.graphics.*
 import android.graphics.Paint.Style.FILL
 import android.graphics.Paint.Style.STROKE
-import android.graphics.RectF
 import android.util.AttributeSet
 import android.util.Log
 import android.view.View
@@ -18,6 +15,7 @@ class DrawView : View {
     private var mRatioWidth = 0
     private var mRatioHeight = 0
 
+    private var points : ArrayList<PointF> ?= null
     private var rectF : RectF ?= null
     private var mWidth: Int = 0
     private var mHeight: Int = 0
@@ -57,9 +55,11 @@ class DrawView : View {
 
     fun setDrawPoint(
         rectF: RectF,
+        points: ArrayList<PointF>,
         ratio: Float
     ) {
         this.rectF = null
+        this.points = null
 
         val left = rectF.left / ratio / mRatioX
         val right = rectF.right / ratio / mRatioX
@@ -67,6 +67,12 @@ class DrawView : View {
         val top = rectF.top / ratio / mRatioY
 
         this.rectF = RectF(left,top,right,bottom)
+
+        val pIter : Iterator<PointF> = points.iterator()
+        while (pIter.hasNext()){
+            val point = pIter.next()
+            this.points?.add(PointF(point.x / ratio / mRatioX, point.y / ratio /mRatioY))
+        }
     }
 
     /**
@@ -94,6 +100,10 @@ class DrawView : View {
         if(rectF != null){
             mPaint.color = Color.parseColor("#86AF49")
             canvas.drawRect(rectF!!,mPaint)
+        }
+        if (!points.isNullOrEmpty()){
+            mPaint.color = Color.parseColor("#86AF49")
+            canvas.drawPoints(points as FloatArray,mPaint)
         }
     }
 
